@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="bn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>আমার দোকান — Online</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#f5f7fb;margin:0;color:#17202a}.wrap{max-width:900px;margin:auto;padding:16px}
+header{background:#111827;color:#fff;padding:20px;text-align:center} .card{background:#fff;padding:16px;border-radius:14px;margin:14px 0;box-shadow:0 2px 12px #0001}
+input{width:100%;box-sizing:border-box;padding:12px;margin:6px 0;border:1px solid #ddd;border-radius:9px}
+button{padding:11px 15px;border:0;border-radius:9px;background:#2563eb;color:#fff;font-size:15px;margin:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}.item{border:1px solid #ddd;padding:10px;border-radius:12px}
+.item img{width:100%;height:135px;object-fit:cover;border-radius:8px}.price{font-size:25px;font-weight:800;color:#16a34a}.muted{color:#667085;font-size:13px}
+.hidden{display:none}.danger{background:#dc2626}
+</style></head>
+<body>
+<header><h2>আমার দোকান</h2><div>Online Product Manager</div></header>
+<div class="wrap">
+<div id="login" class="card">
+<h3>🔐 Login</h3>
+<p class="muted">Supabase connect করার পর এখানে তোমার account দিয়ে login করবে।</p>
+<input id="email" type="email" placeholder="Email">
+<input id="password" type="password" placeholder="Password">
+<button onclick="login()">Login</button>
+<button onclick="signup()">Create account</button>
+<div id="authmsg"></div>
+</div>
+
+<div id="app" class="hidden">
+<div class="card"><button onclick="logout()">Logout</button></div>
+<div class="card">
+<h3>➕ Product যোগ করুন</h3>
+<input id="photo" type="file" accept="image/*"><input id="name" placeholder="Product নাম">
+<input id="code" placeholder="Product code"><input id="buy" type="number" placeholder="কেনা দাম">
+<input id="sell" type="number" placeholder="বিক্রির দাম"><input id="stock" type="number" placeholder="Stock">
+<button onclick="addProduct()">Save Product</button>
+</div>
+<div class="card">
+<h3>📷 Photo Search</h3>
+<input id="searchPhoto" type="file" accept="image/*">
+<p class="muted">AI matching module এখানে Supabase storage/database-এর Product ছবির সাথে মিল করবে।</p>
+<div id="match"></div>
+</div>
+<div class="card">
+<h3>🔎 Products</h3><input id="q" oninput="render()" placeholder="নাম বা code দিয়ে খুঁজুন">
+<div id="list" class="grid"></div>
+</div>
+</div></div>
+
+<script>
+/*
+  IMPORTANT:
+  Replace the placeholders below with your own Supabase project values.
+  This starter is deliberately safe: no secret service-role key is included.
+*/
+const SUPABASE_URL="YOUR_SUPABASE_URL";
+const SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY";
+let sb=null, products=[];
+
+function msg(t){document.getElementById('authmsg').textContent=t}
+async function init(){
+ if(SUPABASE_URL.startsWith("YOUR_")){msg("Supabase connect করা হয়নি। SETUP.txt দেখুন।");return}
+ const s=document.createElement('script');s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";document.head.appendChild(s);
+ s.onload=async()=>{sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY); const {data:{session}}=await sb.auth.getSession(); if(session) showApp();};
+}
+async function signup(){if(!sb)return msg("আগে Supabase setup করুন।");const {error}=await sb.auth.signUp({email:email.value,password:password.value});msg(error?error.message:"Account তৈরি হয়েছে। Email verify করুন।")}
+async function login(){if(!sb)return msg("আগে Supabase setup করুন।");const {error}=await sb.auth.signInWithPassword({email:email.value,password:password.value});if(error)msg(error.message);else showApp()}
+async function logout(){await sb.auth.signOut();location.reload()}
+async function showApp(){loginBox=document.getElementById('login');loginBox.classList.add('hidden');document.getElementById('app').classList.remove('hidden');await loadProducts()}
+async function loadProducts(){const {data,error}=await sb.from('products').select('*').order('created_at',{ascending:false});products=data||[];render();if(error)alert(error.message)}
+function render(){const q=(document.getElementById('q').value||'').toLowerCase();list.innerHTML='';products.filter(p=>(p.name+' '+(p.code||'')).toLowerCase().includes(q)).forEach(p=>{list.innerHTML+=`<div class="item"><img src="${p.image_url||''}"><b>${p.name}</b><div>${p.code||''}</div><div class="price">৳${p.sell_price}</div><div>Stock: ${p.stock}</div><button class="danger" onclick="del('${p.id}')">Delete</button></div>`})}
+async function addProduct(){
+ if(!sb)return;
+ const f=photo.files[0];if(!f||!name.value||!sell.value)return alert("ছবি, নাম ও বিক্রির দাম দিন");
+ const user=(await sb.auth.getUser()).data.user;if(!user)return;
+ const path=user.id+"/"+Date.now()+"_"+f.name.replace(/[^a-zA-Z0-9._-]/g,"_");
+ const up=await sb.storage.from('product-images').upload(path,f,{upsert:false});
+ if(up.error)return alert(up.error.message);
+ const pub=sb.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+ const ins=await sb.from('products').insert({user_id:user.id,name:name.value,code:code.value,buy_price:Number(buy.value||0),sell_price:Number(sell.value),stock:Number(stock.value||0),image_url:pub});
+ if(ins.error)alert(ins.error.message);else{alert("Product save হয়েছে");await loadProducts()}
+}
+async function del(id){if(!confirm("Delete করবেন?"))return;const r=await sb.from('products').delete().eq('id',id);if(r.error)alert(r.error.message);else loadProducts()}
+searchPhoto.addEventListener('change',()=>{if(searchPhoto.files[0])match.innerHTML="<b>Photo received.</b> AI matching backend module ready করার জন্য SETUP.txt-এর পরের ধাপ ব্যবহার করুন।"});
+init();
+</script>
+</body></html>
